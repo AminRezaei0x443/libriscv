@@ -151,7 +151,7 @@ namespace riscv
 
         /// @brief Decoder cache
         /// @details ...
-        std::vector<uint8_t> decoder_bytes {};
+        const std::vector<uint8_t>& decoder_bytes {};
 
         /// @brief Save
         /// @details ...
