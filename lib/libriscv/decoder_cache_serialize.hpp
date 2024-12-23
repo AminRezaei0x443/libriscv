@@ -3,11 +3,17 @@
 #include "decoder_cache.hpp"
 #include <iostream>
 
+#if 1
+#define LOAD_EXP
+#else
+#define LOAD_MANUALLY
+#endif
+
 namespace riscv {
     void write_vector_to_file(const std::string &filename, const std::vector<uint8_t> &data);
 
     template<int W>
-    static std::vector<std::uint8_t> serialize_whole_decoder_cache(DecoderCache<W> *&caches, int n) {
+    static std::vector<std::uint8_t> serialize_cache_manually(DecoderCache<W> *&caches, int n) {
         std::vector<std::uint8_t> out;
 
         if (n == 0) {
@@ -43,7 +49,7 @@ namespace riscv {
     }
 
     template<int W>
-    DecoderCache<W> *deserialize_decoder_cache(const std::vector<std::uint8_t> &bytes, int n) {
+    DecoderCache<W> *deserialize_decoder_cache_manually(const std::vector<std::uint8_t> &bytes, int n) {
         auto *cache = new DecoderCache<W>[n];
 
         const size_t num_entries = cache[0].cache.size(); // N = PageSize / DIVISOR
@@ -92,5 +98,84 @@ namespace riscv {
         }
 
         return cache;
+    }
+
+    template<int W>
+    std::vector<std::uint8_t>
+    serialize_decoder_cache_exp(const DecoderCache<W> &decoder_cache) {
+        // We'll just do a raw copy of the entire array:
+        const auto *data_ptr = reinterpret_cast<const std::uint8_t *>(decoder_cache.cache.data());
+        const size_t num_bytes = decoder_cache.cache.size() * sizeof(DecoderData<W>);
+
+        std::vector<std::uint8_t> out;
+        out.resize(num_bytes);
+        std::memcpy(out.data(), data_ptr, num_bytes);
+
+        return out;
+    }
+
+
+    template<int W>
+    DecoderCache<W> deserialize_cache_item_exp(const uint8_t *bytes) {
+        DecoderCache<W> result;
+        const size_t expected_size = result.cache.size() * sizeof(DecoderData<W>);
+        std::memcpy(result.cache.data(), bytes, expected_size);
+        return result;
+    }
+
+    template<int W>
+    DecoderCache<W> *deserialize_decoder_cache(const std::vector<uint8_t> &data, int n) {
+        auto t1 = std::chrono::high_resolution_clock::now();
+
+#ifdef LOAD_EXP
+        auto *cache = new DecoderCache<W>[n];
+
+        const size_t num_entries = cache[0].cache.size(); // N = PageSize / DIVISOR
+        const size_t required_size = n * num_entries * sizeof(DecoderData<W>);
+
+        if (data.size() != required_size) {
+            throw std::runtime_error(
+                    "deserialize_decoder_cache: invalid input size (expected "
+                    + std::to_string(required_size)
+                    + ", got "
+                    + std::to_string(data.size())
+                    + ")"
+            );
+        }
+        auto raw = data.data();
+        for (int i = 0; i < n; ++i) {
+            cache[i] = deserialize_cache_item_exp<W>(raw + (i * (num_entries * sizeof(DecoderData<W>))));
+        }
+#endif
+
+#ifdef LOAD_MANUALLY
+        auto *cache = deserialize_decoder_cache_manually<W>(data, n);
+#endif
+
+        auto t2 = std::chrono::high_resolution_clock::now();
+
+        std::cout << "EXP LOADING took: " << (t2 - t1).count() << std::endl;
+        return cache;
+    }
+
+    template<int W>
+    static std::vector<std::uint8_t> serialize_whole_decoder_cache(DecoderCache<W> *&caches, int n) {
+        std::vector<std::uint8_t> out;
+
+        if (n == 0) {
+            return out;
+        }
+
+        int size = n * caches[0].cache.size() * sizeof(DecoderData<W>);
+        out.reserve(size);
+
+
+        for (int i = 0; i < n; i++) {
+            auto decoder_cache = caches[i];
+            auto v = serialize_decoder_cache_exp(decoder_cache);
+            out.insert(out.end(), v.begin(), v.end());
+        }
+
+        return out;
     }
 }
