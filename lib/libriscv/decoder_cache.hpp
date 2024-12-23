@@ -116,7 +116,8 @@ struct DecoderCache
         return SIZE;
     }
 
-    DecoderData<W>* cache = new DecoderData<W>[PageSize / DIVISOR];
+//    DecoderData<W>* cache = new DecoderData<W>[PageSize / DIVISOR];
+    DecoderData<W> cache[PageSize / DIVISOR];
 //	std::array<DecoderData<W>, PageSize / DIVISOR> cache;
 };
 

@@ -131,9 +131,7 @@ namespace riscv {
         auto t1 = std::chrono::high_resolution_clock::now();
 
 #ifdef LOAD_EXP
-        auto *cache = new DecoderCache<W>[n];
-
-        const size_t num_entries = cache[0].size(); // N = PageSize / DIVISOR
+        const size_t num_entries = DecoderCache<W>::SIZE; // N = PageSize / DIVISOR
         const size_t required_size = n * num_entries * sizeof(DecoderData<W>);
 
         if (L != required_size) {
@@ -145,9 +143,8 @@ namespace riscv {
                     + ")"
             );
         }
-        for (int i = 0; i < n; ++i) {
-            cache[i] = deserialize_cache_item_exp<W>(data + (i * (num_entries * sizeof(DecoderData<W>))));
-        }
+
+        auto* cache = reinterpret_cast<DecoderCache<W>*>(data);
 #endif
 
 #ifdef LOAD_MANUALLY
@@ -169,14 +166,13 @@ namespace riscv {
         }
 
         int size = n * caches[0].size() * sizeof(DecoderData<W>);
-        out.reserve(size);
+        std::cout << "det size: " << size << std::endl;
+        out.resize(size);
 
+        const auto *data_ptr = reinterpret_cast<const std::uint8_t *>(caches);
+        const size_t num_bytes = size;
 
-        for (int i = 0; i < n; i++) {
-            auto decoder_cache = caches[i];
-            auto v = serialize_decoder_cache_exp(decoder_cache);
-            out.insert(out.end(), v.begin(), v.end());
-        }
+        std::memcpy(out.data(), data_ptr, num_bytes);
 
         return out;
     }
