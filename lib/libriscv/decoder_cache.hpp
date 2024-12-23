@@ -102,6 +102,7 @@ struct DecoderCache
 {
 	static constexpr size_t DIVISOR = (compressed_enabled) ? 2 : 4;
 	static constexpr unsigned SHIFT = (compressed_enabled) ? 1 : 2;
+	static constexpr unsigned SIZE = PageSize / DIVISOR;
 
 	inline auto& get(size_t idx) noexcept {
 		return cache[idx];
@@ -111,7 +112,12 @@ struct DecoderCache
 		return &cache[0];
 	}
 
-	std::array<DecoderData<W>, PageSize / DIVISOR> cache;
+    size_t size() const {
+        return SIZE;
+    }
+
+    DecoderData<W>* cache = new DecoderData<W>[PageSize / DIVISOR];
+//	std::array<DecoderData<W>, PageSize / DIVISOR> cache;
 };
 
 }

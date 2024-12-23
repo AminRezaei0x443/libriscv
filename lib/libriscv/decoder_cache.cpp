@@ -493,7 +493,7 @@ namespace riscv
                                        "The invalid instruction did not have the index zero", invalid_op.m_handler);
             }
 
-            auto c = deserialize_decoder_cache<W>(options.decoder_bytes, n_pages);
+            auto c = deserialize_decoder_cache<W>(options.decoder_bytes, n_pages, options.decoder_bytes_len);
             // Here we allocate the decoder cache which is page-sized
             auto* decoder_cache = exec.create_decoder_cache(c, n_pages);
             auto* exec_decoder =
