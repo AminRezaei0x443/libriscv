@@ -3,6 +3,7 @@
 #include "types.hpp"
 #include <unordered_map>
 #include <vector>
+#include <iostream>
 
 namespace riscv {
 
@@ -26,6 +27,7 @@ struct DecoderData {
 		get_handler()(cpu, args...);
 	}
 	void set_handler(Instruction<W> insn) noexcept {
+        std::cout << "handler called, total:" << handler_count << std::endl;
 		this->set_insn_handler(insn.handler);
 	}
 

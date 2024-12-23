@@ -145,6 +145,18 @@ namespace riscv
 		/// @details This is useful for debugging and live-patching programs.
 		std::vector<std::variant<address_type<W>, std::string>> ebreak_locations {};
 
+        /// @brief Use provided decoder cache
+        /// @details ...
+        bool load_available_decoder_cache = true;
+
+        /// @brief Decoder cache
+        /// @details ...
+        std::vector<uint8_t> decoder_bytes {};
+
+        /// @brief Save
+        /// @details ...
+        std::string decoder_cache_store_path;
+
 #ifdef RISCV_BINARY_TRANSLATION
 		/// @brief Enable the binary translator.
 		bool translate_enabled = true;

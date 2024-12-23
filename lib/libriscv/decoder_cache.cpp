@@ -6,6 +6,7 @@
 #include "safe_instr_loader.hpp"
 #include "threaded_rewriter.cpp"
 #include "threaded_bytecodes.hpp"
+#include "decoder_cache_serialize.hpp"
 #include "util/crc32.hpp"
 #include <inttypes.h>
 #include <mutex>
@@ -228,7 +229,8 @@ namespace riscv
 						// PC becoming desynched, as it doesn't get increased.
 						// We use a new block-ending fallback function handler instead.
 						entry->set_bytecode(RV32I_BC_FUNCBLOCK);
-						entry->set_handler(CPU<W>::decode(instruction));
+                        std::cout << "setting handler for instr" << std::endl;
+                        entry->set_handler(CPU<W>::decode(instruction));
 						entry->instr = instruction.whole;
 						break;
 					}
@@ -341,133 +343,160 @@ namespace riscv
 			throw MachineException(INVALID_PROGRAM,
 				"Program produced empty decoder cache");
 		}
-		// Here we allocate the decoder cache which is page-sized
-		auto* decoder_cache = exec.create_decoder_cache(
-			new DecoderCache<W> [n_pages], n_pages);
-		// Clear the decoder cache! (technically only needed when binary translation is enabled)
-		std::memset(decoder_cache, 0, n_pages * sizeof(DecoderCache<W>));
-		// Get a base address relative pointer to the decoder cache
-		// Eg. exec_decoder[pbase] is the first entry in the decoder cache
-		// so that PC with a simple shift can be used as a direct index.
-		auto* exec_decoder = 
-			decoder_cache[0].get_base() - pbase / DecoderCache<W>::DIVISOR;
-		exec.set_decoder(exec_decoder);
 
-		DecoderData<W> invalid_op;
-		invalid_op.set_handler(this->machine().cpu.decode({0}));
-		if (UNLIKELY(invalid_op.m_handler != 0)) {
-			throw MachineException(INVALID_PROGRAM,
-				"The invalid instruction did not have the index zero", invalid_op.m_handler);
-		}
 
-		// PC-relative pointer to instruction bits
-		auto* exec_segment = exec.exec_data();
-		TIME_POINT(t1);
+        if (!options.load_available_decoder_cache) {
+            // Here we allocate the decoder cache which is page-sized
+            auto* decoder_cache = exec.create_decoder_cache(
+                    new DecoderCache<W> [n_pages], n_pages);
+            // Clear the decoder cache! (technically only needed when binary translation is enabled)
+            std::memset(decoder_cache, 0, n_pages * sizeof(DecoderCache<W>));
+            // Get a base address relative pointer to the decoder cache
+            // Eg. exec_decoder[pbase] is the first entry in the decoder cache
+            // so that PC with a simple shift can be used as a direct index.
+            auto* exec_decoder =
+                    decoder_cache[0].get_base() - pbase / DecoderCache<W>::DIVISOR;
+            exec.set_decoder(exec_decoder);
 
-#ifdef RISCV_BINARY_TRANSLATION
-		// We do not support binary translation for RV128I
-		// Also, avoid binary translation for execute segments that are likely JIT-compiled
-		const bool allow_translation = is_initial || options.translate_future_segments;
-		if (!exec.is_binary_translated() && allow_translation && !exec.is_likely_jit()) {
-			// Attempt to load binary translation
-			// Also, fill out the binary translation SO filename for later
-			std::string bintr_filename;
-			int result = machine().cpu.load_translation(options, &bintr_filename, exec);
-			const bool must_translate = result > 0;
-			if (must_translate)
-			{
-				machine().cpu.try_translate(
-					options, bintr_filename, shared_segment);
-			}
-		}
-	#endif
-
-		// When compressed instructions are enabled, many decoder
-		// entries are illegal because they are between instructions.
-		bool was_full_instruction = true;
-
-		/* Generate all instruction pointers for executable code.
-		   Cannot step outside of this area when pregen is enabled,
-		   so it's fine to leave the boundries alone. */
-		TIME_POINT(t2);
-		address_t dst = addr;
-		const address_t end_addr = addr + len;
-		for (; dst < addr + len;)
-		{
-			auto& entry = exec_decoder[dst / DecoderCache<W>::DIVISOR];
-			entry.m_handler = 0;
-			entry.idxend = 0;
-
-			// Load unaligned instruction from execute segment
-			const auto instruction = read_instruction(
-				exec_segment, dst, end_addr);
-			rv32i_instruction rewritten = instruction;
+            DecoderData<W> invalid_op;
+            std::cout << "setting handler for invalid op" << std::endl;
+            invalid_op.set_handler(this->machine().cpu.decode({0}));
+            if (UNLIKELY(invalid_op.m_handler != 0)) {
+                throw MachineException(INVALID_PROGRAM,
+                                       "The invalid instruction did not have the index zero", invalid_op.m_handler);
+            }
+            // PC-relative pointer to instruction bits
+            auto *exec_segment = exec.exec_data();
+            TIME_POINT(t1);
 
 #ifdef RISCV_BINARY_TRANSLATION
-			// Translator activation uses a special bytecode
-			// but we must still validate the mapping index.
-			if (entry.get_bytecode() == RV32I_BC_TRANSLATOR && entry.is_invalid_handler() && entry.instr < exec.translator_mappings()) {
-				if constexpr (compressed_enabled) {
-					dst += 2;
-					if (was_full_instruction) {
-						was_full_instruction = (instruction.length() == 2);
-					} else {
-						was_full_instruction = true;
-					}
-				} else
-					dst += 4;
-				continue;
-			}
+            // We do not support binary translation for RV128I
+            // Also, avoid binary translation for execute segments that are likely JIT-compiled
+            const bool allow_translation = is_initial || options.translate_future_segments;
+            if (!exec.is_binary_translated() && allow_translation && !exec.is_likely_jit()) {
+                // Attempt to load binary translation
+                // Also, fill out the binary translation SO filename for later
+                std::string bintr_filename;
+                int result = machine().cpu.load_translation(options, &bintr_filename, exec);
+                const bool must_translate = result > 0;
+                if (must_translate)
+                {
+                    machine().cpu.try_translate(
+                        options, bintr_filename, shared_segment);
+                }
+            }
+#endif
+
+            // When compressed instructions are enabled, many decoder
+            // entries are illegal because they are between instructions.
+            bool was_full_instruction = true;
+
+            /* Generate all instruction pointers for executable code.
+               Cannot step outside of this area when pregen is enabled,
+               so it's fine to leave the boundries alone. */
+            TIME_POINT(t2);
+            address_t dst = addr;
+            const address_t end_addr = addr + len;
+            for (; dst < addr + len;) {
+                auto &entry = exec_decoder[dst / DecoderCache<W>::DIVISOR];
+                entry.m_handler = 0;
+                entry.idxend = 0;
+
+                // Load unaligned instruction from execute segment
+                const auto instruction = read_instruction(
+                        exec_segment, dst, end_addr);
+                rv32i_instruction rewritten = instruction;
+
+#ifdef RISCV_BINARY_TRANSLATION
+                // Translator activation uses a special bytecode
+                // but we must still validate the mapping index.
+                if (entry.get_bytecode() == RV32I_BC_TRANSLATOR && entry.is_invalid_handler() && entry.instr < exec.translator_mappings()) {
+                    if constexpr (compressed_enabled) {
+                        dst += 2;
+                        if (was_full_instruction) {
+                            was_full_instruction = (instruction.length() == 2);
+                        } else {
+                            was_full_instruction = true;
+                        }
+                    } else
+                        dst += 4;
+                    continue;
+                }
 #endif // RISCV_BINARY_TRANSLATION
 
-			if (was_full_instruction) {
-				// Cache the (modified) instruction bits
-				auto bytecode = CPU<W>::computed_index_for(instruction);
-				// Threaded rewrites are **always** enabled
-				bytecode = exec.threaded_rewrite(bytecode, dst, rewritten, entry.m_handler);
-				entry.set_bytecode(bytecode);
-				entry.instr = rewritten.whole;
-			} else {
-				// WARNING: If we don't ignore this instruction,
-				// it will get *wrong* idxend values, and cause *invalid jumps*
-				entry.m_handler = 0;
-				entry.set_bytecode(0);
-				// ^ Must be made invalid, even if technically possible to jump to!
-			}
-			if constexpr (VERBOSE_DECODER) {
-				if (entry.get_bytecode() >= RV32I_BC_BEQ && entry.get_bytecode() <= RV32I_BC_BGEU) {
-					fprintf(stderr, "Detected branch bytecode at 0x%lX\n", dst);
-				}
-				if (entry.get_bytecode() == RV32I_BC_BEQ_FW || entry.get_bytecode() == RV32I_BC_BNE_FW) {
-					fprintf(stderr, "Detected forward branch bytecode at 0x%lX\n", dst);
-				}
-			}
+                if (was_full_instruction) {
+                    // Cache the (modified) instruction bits
+                    auto bytecode = CPU<W>::computed_index_for(instruction);
+                    // Threaded rewrites are **always** enabled
+                    bytecode = exec.threaded_rewrite(bytecode, dst, rewritten, entry.m_handler);
+                    entry.set_bytecode(bytecode);
+                    entry.instr = rewritten.whole;
+                } else {
+                    // WARNING: If we don't ignore this instruction,
+                    // it will get *wrong* idxend values, and cause *invalid jumps*
+                    entry.m_handler = 0;
+                    entry.set_bytecode(0);
+                    // ^ Must be made invalid, even if technically possible to jump to!
+                }
+                if constexpr (VERBOSE_DECODER) {
+                    if (entry.get_bytecode() >= RV32I_BC_BEQ && entry.get_bytecode() <= RV32I_BC_BGEU) {
+                        fprintf(stderr, "Detected branch bytecode at 0x%lX\n", dst);
+                    }
+                    if (entry.get_bytecode() == RV32I_BC_BEQ_FW || entry.get_bytecode() == RV32I_BC_BNE_FW) {
+                        fprintf(stderr, "Detected forward branch bytecode at 0x%lX\n", dst);
+                    }
+                }
 
-			// Increment PC after everything
-			if constexpr (compressed_enabled) {
-				// With compressed we always step forward 2 bytes at a time
-				dst += 2;
-				if (was_full_instruction) {
-					// For it to be a full instruction again,
-					// the length needs to match.
-					was_full_instruction = (instruction.length() == 2);
-				} else {
-					// If it wasn't a full instruction last time, it
-					// will for sure be one now.
-					was_full_instruction = true;
-				}
-			} else
-				dst += 4;
-		}
-		// Make sure the last entry is an invalid instruction
-		// This simplifies many other sub-systems
-		auto& entry = exec_decoder[(addr + len) / DecoderCache<W>::DIVISOR];
-		entry.set_bytecode(0);
-		entry.m_handler = 0;
-		entry.idxend = 0;
-		TIME_POINT(t3);
+                // Increment PC after everything
+                if constexpr (compressed_enabled) {
+                    // With compressed we always step forward 2 bytes at a time
+                    dst += 2;
+                    if (was_full_instruction) {
+                        // For it to be a full instruction again,
+                        // the length needs to match.
+                        was_full_instruction = (instruction.length() == 2);
+                    } else {
+                        // If it wasn't a full instruction last time, it
+                        // will for sure be one now.
+                        was_full_instruction = true;
+                    }
+                } else
+                    dst += 4;
+            }
+            // Make sure the last entry is an invalid instruction
+            // This simplifies many other sub-systems
+            auto &entry = exec_decoder[(addr + len) / DecoderCache<W>::DIVISOR];
+            entry.set_bytecode(0);
+            entry.m_handler = 0;
+            entry.idxend = 0;
+            TIME_POINT(t3);
 
-		realize_fastsim<W>(addr, dst, exec_segment, exec_decoder);
+            realize_fastsim<W>(addr, dst, exec_segment, exec_decoder);
+
+            // Store decoder cache
+            if (!options.decoder_cache_store_path.empty()) {
+                auto dec_bytes = serialize_whole_decoder_cache(decoder_cache, n_pages);
+                write_vector_to_file(options.decoder_cache_store_path, dec_bytes);
+                std::cout << "serialized decoder cache to " << options.decoder_cache_store_path << "with n_bytes: "
+                          << dec_bytes.size() << std::endl;
+            }
+
+        } else {
+            DecoderData<W> invalid_op;
+            std::cout << "setting handler for invalid op" << std::endl;
+            invalid_op.set_handler(this->machine().cpu.decode({0}));
+            if (UNLIKELY(invalid_op.m_handler != 0)) {
+                throw MachineException(INVALID_PROGRAM,
+                                       "The invalid instruction did not have the index zero", invalid_op.m_handler);
+            }
+
+            auto c = deserialize_decoder_cache<W>(options.decoder_bytes, n_pages);
+            // Here we allocate the decoder cache which is page-sized
+            auto* decoder_cache = exec.create_decoder_cache(c, n_pages);
+            auto* exec_decoder =
+                    decoder_cache[0].get_base() - pbase / DecoderCache<W>::DIVISOR;
+            exec.set_decoder(exec_decoder);
+        }
 
 		// Debugging: EBREAK locations
 		for (auto& loc : options.ebreak_locations) {

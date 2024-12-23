@@ -73,6 +73,7 @@ set (SOURCES
 		libriscv/debug.cpp
 		libriscv/decode_bytecodes.cpp
 		libriscv/decoder_cache.cpp
+		libriscv/decoder_cache_serialize.cpp
 		libriscv/machine.cpp
 		libriscv/machine_defaults.cpp
 		libriscv/memory.cpp
@@ -259,6 +260,7 @@ if (${CMAKE_PROJECT_NAME} STREQUAL "libriscv")
 		libriscv/debug.hpp
 		libriscv/decoded_exec_segment.hpp
 		libriscv/decoder_cache.hpp
+		libriscv/decoder_cache_serialize.hpp
 		libriscv/elf.hpp
 		libriscv/instr_helpers.hpp
 		libriscv/instruction_counter.hpp
