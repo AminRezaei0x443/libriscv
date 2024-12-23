@@ -3,6 +3,7 @@
 #include "decoder_cache.hpp"
 #include <iostream>
 #include <chrono>
+#include <cstring>
 
 #if 1
 #define LOAD_EXP
