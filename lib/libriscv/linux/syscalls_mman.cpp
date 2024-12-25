@@ -138,15 +138,16 @@ static void add_mman_syscalls()
 			MMAP_HAS_FAILED();
 		}
 
-		// anon pages need to be zeroed
-		if (flags & LINUX_MAP_ANONYMOUS) {
-			machine.memory.memdiscard(result, length, true);
-		}
-		// avoid potentially creating pages when MAP_NORESERVE is set
-		if ((flags & LINUX_MAP_NORESERVE) == 0)
-		{
-			machine.memory.set_page_attr(result, length, attr);
-		}
+        if (prot != 0) {
+            // anon pages need to be zeroed
+            if (flags & LINUX_MAP_ANONYMOUS) {
+                machine.memory.memdiscard(result, length, true);
+            }
+            // avoid potentially creating pages when MAP_NORESERVE is set
+            if ((flags & LINUX_MAP_NORESERVE) == 0) {
+                machine.memory.set_page_attr(result, length, attr);
+            }
+        }
 		machine.set_result(result);
 		SYSPRINT("<<< mmap(addr 0x%lX, len %zu, ...) = 0x%lX\n",
 				(long)addr_g, (size_t)length, (long)result);
