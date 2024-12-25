@@ -12,6 +12,11 @@
 #endif
 
 namespace riscv {
+    struct __attribute__((__packed__)) _handler_item {
+        uint32_t idx;
+        uint32_t instr;
+    };
+
     void write_vector_to_file(const std::string &filename, const std::vector<uint8_t> &data);
 
     template<int W>
@@ -121,22 +126,22 @@ namespace riscv {
     DecoderCache<W> deserialize_cache_item_exp(uint8_t *bytes) {
         DecoderCache<W> result;
 //        const size_t expected_size = result.size() * sizeof(DecoderData<W>);
-        result.cache = reinterpret_cast<DecoderData<W>*>(bytes);
+        result.cache = reinterpret_cast<DecoderData<W> *>(bytes);
 //        std::memcpy(result.cache.data(), bytes, expected_size);
         return result;
     }
 
     template<int W>
-    DecoderCache<W> *deserialize_decoder_cache(uint8_t* data, int n, int L) {
+    DecoderCache<W> *deserialize_decoder_cache(uint8_t *data, int n, int L) {
         auto t1 = std::chrono::high_resolution_clock::now();
 
 #ifdef LOAD_EXP
         const size_t num_entries = DecoderCache<W>::SIZE; // N = PageSize / DIVISOR
-        const size_t required_size = n * num_entries * sizeof(DecoderData<W>);
+        const size_t required_size = n * num_entries * sizeof(DecoderData<W>) + 1;
 
-        if (L != required_size) {
+        if (L < required_size) {
             throw std::runtime_error(
-                    "deserialize_decoder_cache: invalid input size (expected "
+                    "deserialize_decoder_cache: invalid input size (expected at least "
                     + std::to_string(required_size)
                     + ", got "
                     + std::to_string(L)
@@ -144,7 +149,15 @@ namespace riscv {
             );
         }
 
-        auto* cache = reinterpret_cast<DecoderCache<W>*>(data);
+        auto *cache = reinterpret_cast<DecoderCache<W> *>(data);
+        auto handler_c = data[required_size - 1];
+        auto *handlers = reinterpret_cast<_handler_item *>(data + required_size);
+        for (int i = 0; i < handler_c; ++i) {
+            auto it = handlers[i];
+            std::cout << "assigning handler: " << it.idx << " -> " << it.instr << std::endl;
+            DecoderData<W>::_assign_handler(it.idx, CPU<W>::decode({it.instr}).handler);
+        }
+
 #endif
 
 #ifdef LOAD_MANUALLY
@@ -156,6 +169,7 @@ namespace riscv {
         std::cout << "EXP LOADING took: " << (t2 - t1).count() << std::endl;
         return cache;
     }
+
 
     template<int W>
     static std::vector<std::uint8_t> serialize_whole_decoder_cache(DecoderCache<W> *&caches, int n) {
@@ -173,6 +187,36 @@ namespace riscv {
         const size_t num_bytes = size;
 
         std::memcpy(out.data(), data_ptr, num_bytes);
+
+        // Here we need to serialize additional meta
+        auto m = DecoderData<W>::inst_handler_mapping;
+        auto needed_pairs = m.size() - 1;
+        auto new_size = size +
+                        1 + // len < 255
+                        needed_pairs * sizeof(_handler_item);
+        std::cout << "inst map size: " << needed_pairs << std::endl;
+        std::cout << "handler item size: " << sizeof(_handler_item) << std::endl;
+        std::cout << "new size: " << new_size << std::endl;
+        auto *hi_arr = new _handler_item[needed_pairs];
+
+        int i = 0;
+        for (const auto &kv: m) {
+            size_t k = kv.first;
+            uint32_t v = kv.second;
+
+            if (k == 0) {
+                continue;
+            }
+
+            hi_arr[i].idx = k;
+            hi_arr[i].instr = v;
+            i += 1;
+        }
+
+        out.resize(new_size);
+        out[size] = needed_pairs;
+        const auto *h_ptr = reinterpret_cast<const std::uint8_t *>(hi_arr);
+        std::memcpy(out.data() + size + 1, h_ptr, needed_pairs * sizeof(_handler_item));
 
         return out;
     }

@@ -21,14 +21,18 @@ struct DecoderData {
 #endif
 
 	uint32_t instr;
+    static inline std::unordered_map<size_t , uint32_t> inst_handler_mapping;
 
 	template <typename... Args>
 	void execute(CPU<W>& cpu, Args... args) const {
 		get_handler()(cpu, args...);
 	}
+
 	void set_handler(Instruction<W> insn) noexcept {
         std::cout << "handler called, total:" << handler_count << std::endl;
 		this->set_insn_handler(insn.handler);
+        std::cout << "mapping: " << (uint32_t)(this->m_handler)<< "->" << this->instr << std::endl;
+        this->inst_handler_mapping[this->m_handler] = this->instr;
 	}
 
 	// Switch-based and threaded simulation uses bytecodes.
@@ -91,6 +95,11 @@ struct DecoderData {
 		static_assert(sizeof(DecoderData<W>) == 8, "DecoderData size mismatch");
 		*(uint64_t*)this = *(uint64_t*)&other;
 	}
+
+    static void _assign_handler(size_t idx, Handler h) {
+        instr_handlers[idx] = h;
+    }
+
 private:
 	static inline std::array<Handler, 256> instr_handlers;
 	static inline std::size_t handler_count = 0;

@@ -254,8 +254,8 @@ namespace riscv
 						rv32i_instruction instruction = read_instruction(exec_segment, pc - length, last_pc);
 						entry->set_bytecode(RV32I_BC_FUNCBLOCK);
                         std::cout << "setting handler for instr" << std::endl;
+                        entry->instr = instruction.whole;
                         entry->set_handler(CPU<W>::decode(instruction));
-						entry->instr = instruction.whole;
 						break;
 					}
 
